@@ -5,7 +5,7 @@
 # Shift + ЛКМ   → center
 # Shift + ПКМ   → boundary (*)
 # ПКМ A → ПКМ B → сегмент между точками
-# W R C T       → выбор элемента (на 1 сегмент)
+# клавиши выбора элемента задаются в таблице ELEMENTS (поле "key")
 # -------------------------------------------------
 
 import matplotlib.pyplot as plt
@@ -35,7 +35,11 @@ ELEMENTS = {
     "wire": {"key":"w","symbol":"-","color":"blue"},
     "resistor": {"key":"r","symbol":"R","color":"green"},
     "capacitor": {"key":"c","symbol":"C","color":"purple"},
-    "transistor": {"key":"t","symbol":"T","color":"orange"}
+    "transistor": {"key":"t","symbol":"T","color":"orange"},
+    "diode": {"key":"d","symbol":"D","color":"yellow"},
+    "inductor": {"key":"l","symbol":"L","color":"brown"},
+    "vsource": {"key":"v","symbol":"V","color":"red"},
+    "ground": {"key":"g","symbol":"G","color":"black"}
 }
 
 # -------------------------------------------------
@@ -43,8 +47,9 @@ ELEMENTS = {
 # -------------------------------------------------
 
 points = []
+center_elements = {}  # center point index -> element type
 # (gx, gy, type)
-# type = node | center | boundary | corner_fwd | corner_back
+# type = node | center | vertex | boundary | corner_fwd | corner_back
 # corner_fwd  = visual corner marker "/"
 # corner_back = visual corner marker "\\"
 
@@ -171,10 +176,45 @@ def create_segment(a, b):
             if min(pa[0],pb[0]) < gx < max(pa[0],pb[0]):
                 return
 
+        # determine element source (center defines element)
+    element_to_use = active_element
+
+    # propagate element through element-chain geometry (inherit only from connected center)
+    element_types = {"center","vertex","corner_fwd","corner_back"}
+
+    if points[a][2] in element_types or points[b][2] in element_types:
+        # direct center
+        if points[a][2] == "center" and a in center_elements:
+            element_to_use = center_elements[a]
+        elif points[b][2] == "center" and b in center_elements:
+            element_to_use = center_elements[b]
+        else:
+            # check if either endpoint already connected to a center via segments
+            for s in segments:
+                if s["start"] == a or s["end"] == a:
+                    other = s["end"] if s["start"] == a else s["start"]
+                    if points[other][2] == "center" and other in center_elements:
+                        element_to_use = center_elements[other]
+                        break
+                if s["start"] == b or s["end"] == b:
+                    other = s["end"] if s["start"] == b else s["start"]
+                    if points[other][2] == "center" and other in center_elements:
+                        element_to_use = center_elements[other]
+                        break
+
+    # wire cannot originate from center; block wire segments touching center
+    if (points[a][2] == "center" or points[b][2] == "center") and element_to_use == "wire":
+        return
+
+    if points[a][2] == "center":
+        element_to_use = center_elements.get(a, active_element)
+    elif points[b][2] == "center":
+        element_to_use = center_elements.get(b, active_element)
+
     segments.append({
         "start": a,
         "end": b,
-        "element": active_element
+        "element": element_to_use
     })
 
     active_element = "wire"
@@ -228,6 +268,9 @@ def draw_points():
 
         elif t == "center":
             ax.plot(x, y, "b+", markersize=10)
+
+        elif t == "vertex":
+            ax.text(x, y, "~", ha="center", va="center")
 
         elif t == "corner_fwd":
             ax.text(x, y, "/", ha="center", va="center")
@@ -298,7 +341,10 @@ def add_point(gx, gy, ptype):
 
     if idx is None:
         points.append((gx, gy, ptype))
-        return len(points) - 1
+        idx_new = len(points) - 1
+        if ptype == "center":
+            center_elements[idx_new] = active_element
+        return idx_new
 
     return idx
 
@@ -322,6 +368,8 @@ def on_mouse(event):
             idx = add_point(gx, gy, "corner_fwd")
         elif event.key == "shift":
             idx = add_point(gx, gy, "center")
+        elif event.key in ("alt","alt+graph"):
+            idx = add_point(gx, gy, "vertex")
         else:
             idx = add_point(gx, gy, "node")
 
@@ -376,106 +424,134 @@ def generate_ascii():
 
     grid = {}
 
-    # draw wires first
+    # adjacency list
+    adj = {i: [] for i,_ in enumerate(points)}
     for s in segments:
+        a = s["start"]
+        b = s["end"]
+        adj[a].append(b)
+        adj[b].append(a)
+
+    visited = set()
+
+    # ---------- ELEMENT CHAINS (center driven) ----------
+
+    for center_idx,(gx,gy,t) in enumerate(points):
+
+        if t != "center":
+            continue
+
+        stack = [center_idx]
+        chain = set()
+
+        while stack:
+            p = stack.pop()
+            if p in chain:
+                continue
+
+            chain.add(p)
+
+            px,py,ptype = points[p]
+
+            if ptype == "node" and p != center_idx:
+                continue
+
+            for nb in adj[p]:
+                if nb not in chain:
+                    stack.append(nb)
+
+        # determine element
+        element = center_elements.get(center_idx,"wire")
+
+        cx,cy,_ = points[center_idx]
+
+        # detect orientation
+        horiz = False
+        vert = False
+
+        for nb in adj[center_idx]:
+            x,y,_ = points[nb]
+            if y == cy:
+                horiz = True
+            if x == cx:
+                vert = True
+
+        # draw wires
+        for s in segments:
+
+            if s["start"] not in chain or s["end"] not in chain:
+                continue
+
+            p1 = points[s["start"]]
+            p2 = points[s["end"]]
+
+            x1,y1 = p1[0],p1[1]
+            x2,y2 = p2[0],p2[1]
+
+            if x1 == x2:
+                for y in range(min(y1,y2)+1,max(y1,y2)):
+                    grid[(x1,y)] = "·"
+
+            elif y1 == y2:
+                for x in range(min(x1,x2)+1,max(x1,x2)):
+                    grid[(x,y1)] = "·"
+
+        sym = element_symbol(element, "horizontal" if horiz else "vertical")
+
+        if sym.startswith("["):
+            grid[(cx-1,cy)] = "["
+            grid[(cx,cy)] = sym[1]
+            grid[(cx+1,cy)] = "]"
+
+        elif len(sym) == 3:
+            grid[(cx,cy-1)] = "-"
+            grid[(cx,cy)] = sym[1]
+            grid[(cx,cy+1)] = "-"
+
+        else:
+            grid[(cx,cy)] = sym
+
+        visited |= chain
+
+    # ---------- NORMAL WIRES ----------
+
+    for s in segments:
+
+        if s["start"] in visited or s["end"] in visited:
+            continue
 
         p1 = points[s["start"]]
         p2 = points[s["end"]]
 
-        x1, y1 = p1[0], p1[1]
-        x2, y2 = p2[0], p2[1]
-
-        element = s["element"]
+        x1,y1 = p1[0],p1[1]
+        x2,y2 = p2[0],p2[1]
 
         if x1 == x2:
-
-            y_start = min(y1, y2)
-            y_end = max(y1, y2)
-
-            for y in range(y_start + 1, y_end):
-                if (x1, y) not in grid:
-                    grid[(x1, y)] = "|"
+            for y in range(min(y1,y2)+1,max(y1,y2)):
+                grid[(x1,y)] = "|"
 
         elif y1 == y2:
+            for x in range(min(x1,x2)+1,max(x1,x2)):
+                grid[(x,y1)] = "-"
 
-            x_start = min(x1, x2)
-            x_end = max(x1, x2)
+    # ---------- DRAW POINTS ----------
 
-            for x in range(x_start + 1, x_end):
-                if (x, y1) not in grid:
-                    grid[(x, y1)] = "-"
-
-        # place element if not wire
-        if element != "wire":
-
-            sym = element_symbol(element, "vertical" if x1 == x2 else "horizontal")
-
-            seg_len = abs(y2 - y1) if x1 == x2 else abs(x2 - x1)
-            if seg_len < len(sym):
-                core = next((c for c in sym if c.isalpha()), None)
-                sym = core if core else sym[0]
-
-            if x1 == x2:
-
-                length = abs(y2 - y1)
-                pos = min(y1, y2) + max(1, length // 2)
-                start = pos - (len(sym)//2)
-
-                for i, ch in enumerate(sym):
-                    y = start + i
-                    if (x1, y) not in grid or grid[(x1, y)] in "-|":
-                        grid[(x1, y)] = ch
-                        
-
-            else:
-
-                length = abs(x2 - x1)
-                pos = min(x1, x2) + max(1, length // 2)
-                start = pos - (len(sym)//2)
-
-                for i, ch in enumerate(sym):
-                    x = start + i
-                    if (x, y1) not in grid or grid[(x, y1)] in "-|":
-                        grid[(x, y1)] = ch
-                        
-
-    # draw nodes
-    for i,(gx, gy, t) in enumerate(points):
+    for i,(gx,gy,t) in enumerate(points):
 
         if t == "node":
-            if (gx, gy) not in grid or grid[(gx, gy)] in "-|":
-                grid[(gx, gy)] = "o"
+            grid[(gx,gy)] = "o"
+
+        elif t == "vertex":
+            grid[(gx,gy)] = "·"
 
         elif t == "corner_fwd":
-            grid[(gx, gy)] = "/"
+            grid[(gx,gy)] = "/"
 
         elif t == "corner_back":
-            grid[(gx, gy)] = "\\"        
+            grid[(gx,gy)] = "\\"
 
         elif t == "boundary":
-
-            horiz = False
-            vert = False
-
-            for s in segments:
-                if s["start"] == i or s["end"] == i:
-
-                    p1 = points[s["start"]]
-                    p2 = points[s["end"]]
-
-                    if p1[0] == p2[0]:
-                        vert = True
-
-                    if p1[1] == p2[1]:
-                        horiz = True
-
-            if horiz and not vert:
-                grid[(gx, gy)] = "-"
-            elif vert and not horiz:
-                grid[(gx, gy)] = "|"
-            elif horiz and vert:
-                # crossing without junction: prefer horizontal representation
-                grid[(gx, gy)] = "-"
+            grid[(gx,gy)] = "-"
 
     if not grid:
         return ""
@@ -483,20 +559,15 @@ def generate_ascii():
     xs = [p[0] for p in grid]
     ys = [p[1] for p in grid]
 
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
+    min_x,max_x = min(xs),max(xs)
+    min_y,max_y = min(ys),max(ys)
 
     lines = []
 
-    for y in range(min_y, max_y + 1):
-
+    for y in range(min_y,max_y+1):
         row = ""
-
-        for x in range(min_x, max_x + 1):
-
-            cell = grid.get((x, y), " ")
-            row += cell
-
+        for x in range(min_x,max_x+1):
+            row += grid.get((x,y)," ")
         lines.append(row)
 
     return "\n".join(lines)
