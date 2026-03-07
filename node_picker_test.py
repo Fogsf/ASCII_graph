@@ -28,14 +28,14 @@ GRID_OFFSET_X = 0
 GRID_OFFSET_Y = 0
 
 # -------------------------------------------------
-# ELEMENT COLORS
+# ELEMENT TABLE
 # -------------------------------------------------
 
-ELEMENT_COLORS = {
-    "wire": "blue",
-    "resistor": "green",
-    "capacitor": "purple",
-    "transistor": "orange"
+ELEMENTS = {
+    "wire": {"key":"w","symbol":"-","color":"blue"},
+    "resistor": {"key":"r","symbol":"R","color":"green"},
+    "capacitor": {"key":"c","symbol":"C","color":"purple"},
+    "transistor": {"key":"t","symbol":"T","color":"orange"}
 }
 
 # -------------------------------------------------
@@ -208,7 +208,7 @@ def draw_segments():
         x2 = p2[0] * GRID_SIZE
         y2 = p2[1] * GRID_SIZE
 
-        color = ELEMENT_COLORS.get(s["element"], "blue")
+        color = ELEMENTS.get(s["element"], {}).get("color", "blue")
 
         ax.plot([x1, x2], [y1, y2], color=color, linewidth=3)
 
@@ -363,25 +363,12 @@ def on_mouse(event):
 
 def element_symbol(element, orientation):
 
-    # horizontal representation
+    symbol = ELEMENTS.get(element, {}).get("symbol", "-")
+
     if orientation == "horizontal":
-        if element == "resistor":
-            return "[R]"
-        if element == "capacitor":
-            return "[C]"
-        if element == "transistor":
-            return "[T]"
-        return "-"
+        return f"[{symbol}]" if symbol != "-" else "-"
 
-    # vertical representation
-    if element == "resistor":
-        return "-R-"
-    if element == "capacitor":
-        return "-C-"
-    if element == "transistor":
-        return "-T-"
-
-    return "-"
+    return f"-{symbol}-" if symbol != "-" else "-"
 
 
 
@@ -458,10 +445,6 @@ def generate_ascii():
         if t == "node":
             if (gx, gy) not in grid or grid[(gx, gy)] in "-|":
                 grid[(gx, gy)] = "o"
-
-        elif t == "junction":
-            if (gx, gy) not in grid or grid[(gx, gy)] in "-|":
-                grid[(gx, gy)] = "[T]"
 
         elif t == "corner_fwd":
             grid[(gx, gy)] = "/"
@@ -590,17 +573,10 @@ def on_key(event):
         pending_point = None
         return
 
-    if k == "w":
-        active_element = "wire"
-
-    elif k == "r":
-        active_element = "resistor"
-
-    elif k == "c":
-        active_element = "capacitor"
-
-    elif k == "t":
-        active_element = "transistor"
+    for name, data in ELEMENTS.items():
+        if k == data["key"]:
+            active_element = name
+            break
 
     if k in ("ctrl+s","control+s","cmd+s"):
         save_scheme()
