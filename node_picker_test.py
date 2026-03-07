@@ -1,8 +1,8 @@
-# GRID SCHEMATIC EDITOR (PROD BASELINE — ASCII FIXED CELL MODEL)
+# GRID SCHEMATIC EDITOR (FINAL PROD BASELINE — ASCII FIXED CELL MODEL v1.0)
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
-# Shift + ЛКМ   → junction
+# Shift + ЛКМ   → center
 # Shift + ПКМ   → boundary (*)
 # ПКМ A → ПКМ B → сегмент между точками
 # W R C T       → выбор элемента (на 1 сегмент)
@@ -12,6 +12,9 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 
+# background image for real schematic overlay
+background_image = None
+
 
 # disable matplotlib default Ctrl+S (figure save)
 mpl.rcParams['keymap.save'] = []
@@ -19,6 +22,10 @@ mpl.rcParams['keymap.save'] = []
 GRID_SIZE = 20
 VIEW_W = 1500
 VIEW_H = 900
+
+# grid alignment offsets
+GRID_OFFSET_X = 0
+GRID_OFFSET_Y = 0
 
 # -------------------------------------------------
 # ELEMENT COLORS
@@ -37,9 +44,11 @@ ELEMENT_COLORS = {
 
 points = []
 # (gx, gy, type)
-# type = node | junction | boundary
+# type = node | center | boundary | corner_fwd | corner_back
+# corner_fwd  = visual corner marker "/"
+# corner_back = visual corner marker "\\"
 
-segments = []
+segments = []  # { start, end, element }
 
 # -------------------------------------------------
 # UNDO / REDO
@@ -105,7 +114,7 @@ fig, ax = plt.subplots()
 # -------------------------------------------------
 
 def snap(px, py):
-    return round(px / GRID_SIZE), round(py / GRID_SIZE)
+    return round((px - GRID_OFFSET_X) / GRID_SIZE), round((py - GRID_OFFSET_Y) / GRID_SIZE)
 
 # -------------------------------------------------
 # FIND POINT
@@ -176,11 +185,11 @@ def create_segment(a, b):
 
 def draw_grid():
 
-    for x in range(0, VIEW_W, GRID_SIZE):
-        ax.plot([x, x], [0, VIEW_H], color="#222", linewidth=0.5)
+    for x in range(-GRID_OFFSET_X, VIEW_W, GRID_SIZE):
+        ax.plot([x + GRID_OFFSET_X, x + GRID_OFFSET_X], [0, VIEW_H], color="#222", linewidth=0.5)
 
-    for y in range(0, VIEW_H, GRID_SIZE):
-        ax.plot([0, VIEW_W], [y, y], color="#222", linewidth=0.5)
+    for y in range(-GRID_OFFSET_Y, VIEW_H, GRID_SIZE):
+        ax.plot([0, VIEW_W], [y + GRID_OFFSET_Y, y + GRID_OFFSET_Y], color="#222", linewidth=0.5)
 
 # -------------------------------------------------
 # DRAW SEGMENTS
@@ -217,11 +226,41 @@ def draw_points():
         if t == "node":
             ax.plot(x, y, "ro", markersize=6)
 
-        elif t == "junction":
+        elif t == "center":
             ax.plot(x, y, "b+", markersize=10)
+
+        elif t == "corner_fwd":
+            ax.text(x, y, "/", ha="center", va="center")
+
+        elif t == "corner_back":
+            ax.text(x, y, "\\", ha="center", va="center")
 
         elif t == "boundary":
             ax.plot(x, y, "yx", markersize=8)
+
+# -------------------------------------------------
+# REDRAW
+# -------------------------------------------------
+
+def load_background(path="schematic.png"):
+
+    push_state()
+
+    global background_image, VIEW_W, VIEW_H
+
+    try:
+        background_image = plt.imread(path)
+
+        h, w = background_image.shape[:2]
+        VIEW_W = w
+        VIEW_H = h
+
+        print("background loaded:", path, w, h)
+
+    except Exception as e:
+        print("background load error:", e)
+
+    redraw()
 
 # -------------------------------------------------
 # REDRAW
@@ -235,6 +274,9 @@ def redraw():
     ax.set_ylim(VIEW_H, 0)
 
     ax.set_aspect("equal")
+
+    if background_image is not None:
+        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0])
 
     draw_grid()
     draw_segments()
@@ -276,8 +318,10 @@ def on_mouse(event):
     # LEFT CLICK
     if event.button == 1:
 
-        if event.key == "shift":
-            idx = add_point(gx, gy, "junction")
+        if event.key in ("control","ctrl"):
+            idx = add_point(gx, gy, "corner_fwd")
+        elif event.key == "shift":
+            idx = add_point(gx, gy, "center")
         else:
             idx = add_point(gx, gy, "node")
 
@@ -286,6 +330,12 @@ def on_mouse(event):
 
     # RIGHT CLICK
     if event.button == 3:
+
+        if event.key in ("control","ctrl"):
+
+            add_point(gx, gy, "corner_back")
+            redraw()
+            return
 
         if event.key == "shift":
 
@@ -411,7 +461,13 @@ def generate_ascii():
 
         elif t == "junction":
             if (gx, gy) not in grid or grid[(gx, gy)] in "-|":
-                grid[(gx, gy)] = "+"
+                grid[(gx, gy)] = "[T]"
+
+        elif t == "corner_fwd":
+            grid[(gx, gy)] = "/"
+
+        elif t == "corner_back":
+            grid[(gx, gy)] = "\\"        
 
         elif t == "boundary":
 
@@ -514,9 +570,13 @@ def save_scheme():
 
 def on_key(event):
 
-    global active_element
+    global active_element, pending_point
 
     k = event.key
+
+    if k in ("ctrl+i","control+i"):
+        load_background()
+        return
 
     if k in ("ctrl+z","control+z"):
         undo()
@@ -526,9 +586,9 @@ def on_key(event):
         redo()
         return
 
-    global active_element
-
-    k = event.key
+    if k == "escape":
+        pending_point = None
+        return
 
     if k == "w":
         active_element = "wire"
@@ -542,7 +602,7 @@ def on_key(event):
     elif k == "t":
         active_element = "transistor"
 
-    if k in ("ctrl+s","control+s","cmd+s"): 
+    if k in ("ctrl+s","control+s","cmd+s"):
         save_scheme()
 
     if k in ("ctrl+p","control+p"):
