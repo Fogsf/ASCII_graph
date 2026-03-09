@@ -1,21 +1,34 @@
 # GRID SCHEMATIC EDITOR (FINAL PROD BASELINE — ASCII FIXED CELL MODEL v1.0)
-# PATCH-18
-# ASCII: boundary orientation detection (| for vertical, - for horizontal; horizontal fallback)
-# PATCH-17
-# WINDOW: simplified Tk geometry positioning (1233x839+680+0)
-# PATCH-16
-# WINDOW: Tk workaround withdraw → geometry → deiconify to force WM position
-# PATCH-15
-# WINDOW: TkAgg position stabilization using window.after() to override WM placement
-# PATCH-14
-# WINDOW: Tk position fix using update_idletasks + geometry
-# PATCH-13
-# WINDOW: Tk backend geometry fix using wm_geometry
-# PATCH-12
-# WINDOW: фиксированная позиция и размер окна Figure (26,26,1233x839)
 # PATCH-11
 # ASCII: восстановлена отрисовка элементов сегментов (resistor, capacitor, diode и т.д.)
-# FIX: элементы всегда занимают 3 клетки; node (o) больше не может попадать внутрь элемента
+# FIX: элементы всегда занимают 3 клетки; node (o) больше не может попадать внутрь элемента.
+
+# PATCH-12
+# WINDOW: добавлена фиксация позиции и размера окна Figure.
+
+# PATCH-13
+# WINDOW: исправлена установка геометрии окна для backend Tk (wm_geometry).
+
+# PATCH-14
+# WINDOW: корректировка позиции окна Tk через update_idletasks().
+
+# PATCH-15
+# WINDOW: стабилизация позиционирования окна TkAgg через window.after().
+
+# PATCH-16
+# WINDOW: экспериментальный workaround Tk (withdraw → geometry → deiconify) для принудительного позиционирования окна.
+
+# PATCH-17
+# WINDOW: упрощена логика позиционирования окна — используется фиксированная геометрия:
+# 1233x839+680+0
+# Удалены временные Tk-костыли (after, withdraw, deiconify).
+
+# PATCH-18
+# ASCII: добавлено определение ориентации boundary.
+# вертикаль   → |
+# горизонталь → -
+# fallback    → -
+# Теперь разделитель корректно наследует направление линии.
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
