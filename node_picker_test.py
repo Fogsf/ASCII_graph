@@ -1,8 +1,7 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-28
-# Connection Direction Hint — после выбора точки показываются доступные направления соединения, занятые направления скрываются
-# Убран Smart Snap — find_point снова ищет только точное совпадение координат
+# PATCH-29
+# Ghost Preview линии — при движении курсора показывается призрачная линия будущего сегмента после snap
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -62,6 +61,7 @@ history_redo = []
 active_element = "wire"
 pending_point = None
 hover_point = None
+ghost_target = None
 editor_mode = "draw"
 
 
@@ -362,6 +362,7 @@ def redraw():
 
     draw_grid()
     draw_segments()
+    draw_ghost_segment()
     draw_points()
     draw_connection_hint()
 
@@ -513,6 +514,47 @@ def add_point(gx, gy, ptype):
 # -------------------------------------------------
 
 def on_move(event):
+
+    global hover_point, ghost_target
+
+    if event.xdata is None:
+        hover_point = None
+        ghost_target = None
+        return
+
+    gx, gy = snap(event.xdata, event.ydata)
+
+    hover_point = find_point(gx, gy)
+
+    if pending_point is not None:
+        ghost_target = (gx, gy)
+    else:
+        ghost_target = None
+
+    redraw()
+
+
+def draw_ghost_segment():
+
+    if pending_point is None or ghost_target is None:
+        return
+
+    gx, gy = ghost_target
+    px, py, _ = points[pending_point]
+
+    if px != gx and py != gy:
+        return
+
+    x1 = px * GRID_SIZE
+    y1 = py * GRID_SIZE
+
+    x2 = gx * GRID_SIZE
+    y2 = gy * GRID_SIZE
+
+    ax.plot([x1, x2], [y1, y2], linestyle="--", color="gray", linewidth=2, alpha=0.6)
+
+
+def on_mouse(event):
 
     global hover_point
 
