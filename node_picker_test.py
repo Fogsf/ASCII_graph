@@ -1,21 +1,16 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-18
-# ASCII: boundary orientation detection (| for vertical, - for horizontal; horizontal fallback)
-# PATCH-17
-# WINDOW: simplified Tk geometry positioning (1233x839+680+0)
-# PATCH-16
-# WINDOW: Tk workaround withdraw → geometry → deiconify to force WM position
-# PATCH-15
-# WINDOW: TkAgg position stabilization using window.after() to override WM placement
-# PATCH-14
-# WINDOW: Tk position fix using update_idletasks + geometry
-# PATCH-13
-# WINDOW: Tk backend geometry fix using wm_geometry
-# PATCH-12
-# WINDOW: фиксированная позиция и размер окна Figure (26,26,1233x839)
-# PATCH-11
-# ASCII: восстановлена отрисовка элементов сегментов (resistor, capacitor, diode и т.д.)
-# FIX: элементы всегда занимают 3 клетки; node (o) больше не может попадать внутрь элемента
+# PATCH-19
+# UI: добавлена прозрачность фонового изображения для удобной трассировки схем
+# schematic.png теперь отображается полупрозрачным поверх сетки
+# -------------------------------------------------
+# Управление:
+# ЛКМ           → node
+# Shift + ЛКМ   → boundary (*)
+# Alt + ПКМ     → center
+# Ctrl + ЛКМ    → corner_fwd
+# Ctrl + ПКМ    → corner_back
+# ПКМ A → ПКМ B → сегмент между точками
+# клавиши выбора элемента задаются в таблице ELEMENTS (поле "key")
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -313,7 +308,7 @@ def redraw():
     ax.set_aspect("equal")
 
     if background_image is not None:
-        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0])
+        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35)
 
     draw_grid()
     draw_segments()
