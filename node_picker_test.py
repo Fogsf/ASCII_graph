@@ -2,6 +2,7 @@
 # -------------------------------------------------
 # PATCH-28
 # Connection Direction Hint — после выбора точки показываются доступные направления соединения, занятые направления скрываются
+# Убран Smart Snap — find_point снова ищет только точное совпадение координат
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -129,19 +130,10 @@ def snap(px, py):
 # FIND POINT
 # -------------------------------------------------
 
-SMART_SNAP_RADIUS = 1
-
 def find_point(gx, gy):
-    # точное совпадение
     for i, (x, y, _) in enumerate(points):
         if x == gx and y == gy:
             return i
-
-    # Smart Snap — поиск ближайшей точки в радиусе
-    for i, (x, y, _) in enumerate(points):
-        if abs(x - gx) <= SMART_SNAP_RADIUS and abs(y - gy) <= SMART_SNAP_RADIUS:
-            return i
-
     return None
 
 # -------------------------------------------------
