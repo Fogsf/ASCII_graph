@@ -1,7 +1,7 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-27
-# Hover Highlight — при наведении курсора ближайшая точка подсвечивается символом O для облегчения выбора и соединений
+# PATCH-28
+# Connection Direction Hint — после выбора точки показываются доступные направления соединения, занятые направления скрываются
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -306,6 +306,53 @@ def draw_points():
             ax.plot(x, y, "yx", markersize=12, markeredgewidth=2)
 
 # -------------------------------------------------
+# CONNECTION HINT
+# -------------------------------------------------
+
+def draw_connection_hint():
+
+    if pending_point is None:
+        return
+
+    gx, gy, _ = points[pending_point]
+
+    x = gx * GRID_SIZE
+    y = gy * GRID_SIZE
+
+    occupied = {"up":False,"down":False,"left":False,"right":False}
+
+    for s in segments:
+        if s["start"] == pending_point or s["end"] == pending_point:
+            other = s["end"] if s["start"] == pending_point else s["start"]
+            ox, oy, _ = points[other]
+
+            if ox == gx:
+                if oy < gy:
+                    occupied["up"] = True
+                if oy > gy:
+                    occupied["down"] = True
+
+            if oy == gy:
+                if ox < gx:
+                    occupied["left"] = True
+                if ox > gx:
+                    occupied["right"] = True
+
+    offset = GRID_SIZE * 1.2
+
+    if not occupied["up"]:
+        ax.text(x, y-offset, "↑", ha="center", va="center", color="gray")
+
+    if not occupied["down"]:
+        ax.text(x, y+offset, "↓", ha="center", va="center", color="gray")
+
+    if not occupied["left"]:
+        ax.text(x-offset, y, "←", ha="center", va="center", color="gray")
+
+    if not occupied["right"]:
+        ax.text(x+offset, y, "→", ha="center", va="center", color="gray")
+
+# -------------------------------------------------
 # REDRAW
 # -------------------------------------------------
 
@@ -324,6 +371,7 @@ def redraw():
     draw_grid()
     draw_segments()
     draw_points()
+    draw_connection_hint()
 
     if editor_mode == "delete":
         ax.set_title("MODE: DELETE")
