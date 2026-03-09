@@ -1,7 +1,7 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-26
-# COMMIT: добавлен Smart Snap — выбор существующей точки в радиусе 1 клетки вместо создания новой
+# PATCH-27
+# Hover Highlight — при наведении курсора ближайшая точка подсвечивается символом O для облегчения выбора и соединений
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -60,6 +60,7 @@ history_redo = []
 
 active_element = "wire"
 pending_point = None
+hover_point = None
 editor_mode = "draw"
 
 
@@ -278,13 +279,16 @@ def draw_segments():
 
 def draw_points():
 
-    for gx, gy, t in points:
+    for i,(gx, gy, t) in enumerate(points):
 
         x = gx * GRID_SIZE
         y = gy * GRID_SIZE
 
         if t == "node":
-            ax.plot(x, y, "ro", markersize=6)
+            if i == hover_point:
+                ax.text(x, y, "O", ha="center", va="center", fontsize=12, fontweight="bold")
+            else:
+                ax.plot(x, y, "ro", markersize=6)
 
         elif t == "center":
             ax.plot(x, y, "b+", markersize=12, markeredgewidth=2)
@@ -467,6 +471,21 @@ def add_point(gx, gy, ptype):
 # -------------------------------------------------
 # MOUSE
 # -------------------------------------------------
+
+def on_move(event):
+
+    global hover_point
+
+    if event.xdata is None:
+        hover_point = None
+        return
+
+    gx, gy = snap(event.xdata, event.ydata)
+
+    hover_point = find_point(gx, gy)
+
+    redraw()
+
 
 def on_mouse(event):
 
@@ -858,6 +877,7 @@ def on_key(event):
 
     redraw()
 
+fig.canvas.mpl_connect("motion_notify_event", on_move)
 fig.canvas.mpl_connect("button_press_event", on_mouse)
 fig.canvas.mpl_connect("key_press_event", on_key)
 
