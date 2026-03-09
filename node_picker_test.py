@@ -1,5 +1,11 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-19
+# PATCH-20
+# DELETE MODE
+# X → переключение режима удаления
+# ЛКМ в режиме DELETE удаляет ближайший объект
+# удаление точки использует swap-delete
+# при удалении center удаляется вся архитектура элемента (BFS)
+# обновляются indices в segments и center_elements
 # UI: добавлена прозрачность фонового изображения для удобной трассировки схем
 # schematic.png теперь отображается полупрозрачным поверх сетки
 # -------------------------------------------------
@@ -69,6 +75,7 @@ history_redo = []
 
 active_element = "wire"
 pending_point = None
+editor_mode = "draw"
 
 
 def snapshot_state():
@@ -314,6 +321,127 @@ def redraw():
     draw_segments()
     draw_points()
 
+    if editor_mode == "delete":
+        ax.set_title("MODE: DELETE")
+    else:
+        label = ELEMENTS.get(active_element, {}).get("label", active_element)
+        ax.set_title(f"MODE: {label}")
+
+    fig.canvas.draw_idle()
+
+# -------------------------------------------------
+# DELETE UTILITIES
+# -------------------------------------------------
+
+def swap_delete_point(idx):
+
+    last = len(points) - 1
+
+    # remove segments connected to point
+    remove_segments = [i for i,s in enumerate(segments) if s["start"] == idx or s["end"] == idx]
+
+    for i in reversed(remove_segments):
+        segments.pop(i)
+
+    # center deletion handled separately
+
+    if idx != last:
+        moved = points[last]
+        points[idx] = moved
+
+        # update segments referencing last
+        for s in segments:
+            if s["start"] == last:
+                s["start"] = idx
+            if s["end"] == last:
+                s["end"] = idx
+
+        # update center_elements
+        if last in center_elements:
+            center_elements[idx] = center_elements[last]
+            del center_elements[last]
+
+    points.pop()
+
+    if idx in center_elements:
+        del center_elements[idx]
+
+
+def delete_segment_near(gx, gy):
+
+    for i,s in enumerate(segments):
+
+        p1 = points[s["start"]]
+        p2 = points[s["end"]]
+
+        x1,y1 = p1[0],p1[1]
+        x2,y2 = p2[0],p2[1]
+
+        if x1 == x2 == gx and min(y1,y2) <= gy <= max(y1,y2):
+            push_state()
+            segments.pop(i)
+            return True
+
+        if y1 == y2 == gy and min(x1,x2) <= gx <= max(x1,x2):
+            push_state()
+            segments.pop(i)
+            return True
+
+    return False
+
+
+def delete_center_chain(center_idx):
+
+    adj = {i: [] for i,_ in enumerate(points)}
+    for s in segments:
+        adj[s["start"]].append(s["end"])
+        adj[s["end"]].append(s["start"])
+
+    stack = [center_idx]
+    chain = set()
+
+    while stack:
+        p = stack.pop()
+        if p in chain:
+            continue
+
+        chain.add(p)
+
+        px,py,ptype = points[p]
+
+        if ptype == "node" and p != center_idx:
+            continue
+
+        for nb in adj[p]:
+            if nb not in chain:
+                stack.append(nb)
+
+    # delete segments inside chain
+    for i in reversed(range(len(segments))):
+        s = segments[i]
+        if s["start"] in chain or s["end"] in chain:
+            segments.pop(i)
+
+    # delete points except nodes
+    for idx in sorted(chain, reverse=True):
+        if idx < len(points):
+            swap_delete_point(idx)
+
+
+    ax.clear()
+
+    ax.set_xlim(0, VIEW_W)
+    ax.set_ylim(VIEW_H, 0)
+
+    ax.set_aspect("equal")
+
+    if background_image is not None:
+        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35)
+
+    draw_grid()
+    draw_segments()
+    draw_points()
+
     label = ELEMENTS.get(active_element, {}).get("label", active_element)
     ax.set_title(f"MODE: {label}")
 
@@ -345,6 +473,38 @@ def add_point(gx, gy, ptype):
 # -------------------------------------------------
 
 def on_mouse(event):
+
+    global pending_point
+
+    if event.xdata is None:
+        return
+
+    gx, gy = snap(event.xdata, event.ydata)
+
+    # DELETE MODE
+    if editor_mode == "delete" and event.button == 1:
+
+        idx = find_point(gx, gy)
+
+        if idx is not None:
+
+            push_state()
+
+            if points[idx][2] == "center":
+                delete_center_chain(idx)
+            else:
+                swap_delete_point(idx)
+
+            redraw()
+            return
+
+        if delete_segment_near(gx, gy):
+            redraw()
+            return
+
+        return
+
+
 
     global pending_point
 
@@ -649,6 +809,17 @@ def load_background():
 
 
 def on_key(event):
+
+    global active_element, pending_point, editor_mode
+
+    k = event.key
+
+    if k == "x":
+        editor_mode = "delete" if editor_mode != "delete" else "draw"
+        redraw()
+        return
+
+    # Functional hotkeys
 
     global active_element, pending_point
 
