@@ -1,9 +1,9 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-23
-# FIXES
-# 1. исправлена логика запрета "элемент поверх элемента" (ранний return блокировал создание любых соединений)
-# 2. логика проверки существующего элемента теперь выполняется корректно
-# 3. undo/redo автоматически выходят из DELETE MODE
+# PATCH-24
+# FIXES / PROTECTION
+# 1. запрещено ставить node/vertex/corner/boundary на существующий провод
+#    (предотвращает разрушение топологии ASCII)
+# 2. проверка выполняется в add_point(): если клетка лежит на сегменте (не в его конце) — точка не создаётся
 
 # Управление:
 # ЛКМ           → node
@@ -165,14 +165,14 @@ def create_segment(a, b):
     if pa[0] != pb[0] and pa[1] != pb[1]:
         return
 
-    if segment_exists(a, b):
-        return
-
     # forbid placing element over existing element
     for s in segments:
         if (s["start"] == a and s["end"] == b) or (s["start"] == b and s["end"] == a):
             if s.get("element") != "wire":
                 return
+
+    if segment_exists(a, b):
+        return
 
     # block segments that pass through boundary
     for gx, gy, t in points:
@@ -426,6 +426,22 @@ def delete_center_chain(center_idx):
 
 def add_point(gx, gy, ptype):
 
+    # forbid placing point directly on existing segment
+    for s in segments:
+        p1 = points[s["start"]]
+        p2 = points[s["end"]]
+
+        x1,y1 = p1[0],p1[1]
+        x2,y2 = p2[0],p2[1]
+
+        # vertical segment
+        if x1 == x2 == gx and min(y1,y2) < gy < max(y1,y2):
+            return None
+
+        # horizontal segment
+        if y1 == y2 == gy and min(x1,x2) < gx < max(x1,x2):
+            return None
+
     idx = find_point(gx, gy)
 
     if idx is not None:
@@ -476,8 +492,6 @@ def on_mouse(event):
             return
 
         return
-
-    gx, gy = snap(event.xdata, event.ydata)
 
     if event.button == 1:
 
