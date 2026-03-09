@@ -1,4 +1,21 @@
 # GRID SCHEMATIC EDITOR (FINAL PROD BASELINE — ASCII FIXED CELL MODEL v1.0)
+# PATCH-18
+# ASCII: boundary orientation detection (| for vertical, - for horizontal; horizontal fallback)
+# PATCH-17
+# WINDOW: simplified Tk geometry positioning (1233x839+680+0)
+# PATCH-16
+# WINDOW: Tk workaround withdraw → geometry → deiconify to force WM position
+# PATCH-15
+# WINDOW: TkAgg position stabilization using window.after() to override WM placement
+# PATCH-14
+# WINDOW: Tk position fix using update_idletasks + geometry
+# PATCH-13
+# WINDOW: Tk backend geometry fix using wm_geometry
+# PATCH-12
+# WINDOW: фиксированная позиция и размер окна Figure (26,26,1233x839)
+# PATCH-11
+# ASCII: восстановлена отрисовка элементов сегментов (resistor, capacitor, diode и т.д.)
+# FIX: элементы всегда занимают 3 клетки; node (o) больше не может попадать внутрь элемента
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -12,18 +29,14 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 
-# background image for real schematic overlay
 background_image = None
 
-
-# disable matplotlib default Ctrl+S (figure save)
 mpl.rcParams['keymap.save'] = []
 
 GRID_SIZE = 20
 VIEW_W = 1500
 VIEW_H = 900
 
-# grid alignment offsets
 GRID_OFFSET_X = 0
 GRID_OFFSET_Y = 0
 
@@ -32,14 +45,14 @@ GRID_OFFSET_Y = 0
 # -------------------------------------------------
 
 ELEMENTS = {
-    "wire": {"key":"w","symbol":"-","color":"blue"},
-    "resistor": {"key":"r","symbol":"R","color":"green"},
-    "capacitor": {"key":"c","symbol":"C","color":"purple"},
-    "transistor": {"key":"t","symbol":"T","color":"orange"},
-    "diode": {"key":"d","symbol":"D","color":"yellow"},
-    "inductor": {"key":"l","symbol":"L","color":"brown"},
-    "vsource": {"key":"v","symbol":"V","color":"red"},
-    "ground": {"key":"g","symbol":"G","color":"black"}
+    "wire": {"key":"w","ru":"ц","symbol":"-","color":"blue","label":"провод"},
+    "resistor": {"key":"r","ru":"к","symbol":"R","color":"green","label":"резистор"},
+    "capacitor": {"key":"c","ru":"с","symbol":"C","color":"purple","label":"конденсатор"},
+    "transistor": {"key":"t","ru":"е","symbol":"T","color":"orange","label":"транзистор"},
+    "diode": {"key":"d","ru":"в","symbol":"D","color":"yellow","label":"диод"},
+    "inductor": {"key":"l","ru":"д","symbol":"L","color":"brown","label":"индуктивность"},
+    "vsource": {"key":"v","ru":"м","symbol":"V","color":"red","label":"источник"},
+    "ground": {"key":"g","ru":"п","symbol":"G","color":"black","label":"земля"}
 }
 
 # -------------------------------------------------
@@ -47,13 +60,8 @@ ELEMENTS = {
 # -------------------------------------------------
 
 points = []
-center_elements = {}  # center point index -> element type
-# (gx, gy, type)
-# type = node | center | vertex | boundary | corner_fwd | corner_back
-# corner_fwd  = visual corner marker "/"
-# corner_back = visual corner marker "\\"
-
-segments = []  # { start, end, element }
+center_elements = {}
+segments = []
 
 # -------------------------------------------------
 # UNDO / REDO
@@ -62,18 +70,25 @@ segments = []  # { start, end, element }
 history_undo = []
 history_redo = []
 
+active_element = "wire"
+pending_point = None
+
 
 def snapshot_state():
     return {
         "points": [tuple(p) for p in points],
-        "segments": [dict(s) for s in segments]
+        "segments": [dict(s) for s in segments],
+        "center_elements": dict(center_elements),
+        "active_element": active_element
     }
 
 
 def restore_state(state):
-    global points, segments
+    global points, segments, center_elements, active_element
     points = [tuple(p) for p in state["points"]]
     segments = [dict(s) for s in state["segments"]]
+    center_elements = dict(state.get("center_elements", {}))
+    active_element = state.get("active_element", "wire")
 
 
 def push_state():
@@ -103,16 +118,15 @@ def redo():
     restore_state(state)
 
     redraw()
-# { start, end, element }
-
-active_element = "wire"
-pending_point = None
 
 # -------------------------------------------------
 # FIGURE
 # -------------------------------------------------
 
 fig, ax = plt.subplots()
+manager = plt.get_current_fig_manager()
+root = manager.window
+root.geometry("1233x839+680+0")
 
 # -------------------------------------------------
 # SNAP
@@ -147,12 +161,14 @@ def segment_exists(a, b):
 
 def create_segment(a, b):
 
-    push_state()
-
     global active_element
 
     pa = points[a]
     pb = points[b]
+
+    # topology protection: center cannot connect to another center
+    if pa[2] == "center" and pb[2] == "center":
+        return
 
     # запрет диагоналей
     if pa[0] != pb[0] and pa[1] != pb[1]:
@@ -161,48 +177,47 @@ def create_segment(a, b):
     if segment_exists(a, b):
         return
 
-    # block segments that pass through boundary (*)
-    for i,(gx,gy,t) in enumerate(points):
+    # block segments that pass through boundary
+    for gx, gy, t in points:
         if t != "boundary":
             continue
 
-        # vertical segment
         if pa[0] == pb[0] and gx == pa[0]:
-            if min(pa[1],pb[1]) < gy < max(pa[1],pb[1]):
+            if min(pa[1], pb[1]) < gy < max(pa[1], pb[1]):
                 return
 
-        # horizontal segment
         if pa[1] == pb[1] and gy == pa[1]:
-            if min(pa[0],pb[0]) < gx < max(pa[0],pb[0]):
+            if min(pa[0], pb[0]) < gx < max(pa[0], pb[0]):
                 return
 
-        # determine element source (center defines element)
     element_to_use = active_element
 
-    # propagate element through element-chain geometry (inherit only from connected center)
     element_types = {"center","vertex","corner_fwd","corner_back"}
 
     if points[a][2] in element_types or points[b][2] in element_types:
-        # direct center
-        if points[a][2] == "center" and a in center_elements:
-            element_to_use = center_elements[a]
-        elif points[b][2] == "center" and b in center_elements:
-            element_to_use = center_elements[b]
-        else:
-            # check if either endpoint already connected to a center via segments
-            for s in segments:
-                if s["start"] == a or s["end"] == a:
-                    other = s["end"] if s["start"] == a else s["start"]
-                    if points[other][2] == "center" and other in center_elements:
-                        element_to_use = center_elements[other]
-                        break
-                if s["start"] == b or s["end"] == b:
-                    other = s["end"] if s["start"] == b else s["start"]
-                    if points[other][2] == "center" and other in center_elements:
-                        element_to_use = center_elements[other]
-                        break
+        search_start = a if points[a][2] in element_types else b
+        visited_pts = set()
+        stack = [search_start]
 
-    # wire cannot originate from center; block wire segments touching center
+        while stack:
+            p = stack.pop()
+
+            if p in visited_pts:
+                continue
+
+            visited_pts.add(p)
+
+            if points[p][2] == "center" and p in center_elements:
+                element_to_use = center_elements[p]
+                break
+
+            for s in segments:
+                if s["start"] == p or s["end"] == p:
+                    other = s["end"] if s["start"] == p else s["start"]
+
+                    if other not in visited_pts:
+                        stack.append(other)
+
     if (points[a][2] == "center" or points[b][2] == "center") and element_to_use == "wire":
         return
 
@@ -211,12 +226,13 @@ def create_segment(a, b):
     elif points[b][2] == "center":
         element_to_use = center_elements.get(b, active_element)
 
+    push_state()
+
     segments.append({
         "start": a,
         "end": b,
         "element": element_to_use
     })
-
     active_element = "wire"
 
 # -------------------------------------------------
@@ -285,30 +301,6 @@ def draw_points():
 # REDRAW
 # -------------------------------------------------
 
-def load_background(path="schematic.png"):
-
-    push_state()
-
-    global background_image, VIEW_W, VIEW_H
-
-    try:
-        background_image = plt.imread(path)
-
-        h, w = background_image.shape[:2]
-        VIEW_W = w
-        VIEW_H = h
-
-        print("background loaded:", path, w, h)
-
-    except Exception as e:
-        print("background load error:", e)
-
-    redraw()
-
-# -------------------------------------------------
-# REDRAW
-# -------------------------------------------------
-
 def redraw():
 
     ax.clear()
@@ -325,7 +317,8 @@ def redraw():
     draw_segments()
     draw_points()
 
-    ax.set_title(f"MODE: {active_element.upper()}")
+    label = ELEMENTS.get(active_element, {}).get("label", active_element)
+    ax.set_title(f"MODE: {label}")
 
     fig.canvas.draw_idle()
 
@@ -335,18 +328,20 @@ def redraw():
 
 def add_point(gx, gy, ptype):
 
-    push_state()
-
     idx = find_point(gx, gy)
 
-    if idx is None:
-        points.append((gx, gy, ptype))
-        idx_new = len(points) - 1
-        if ptype == "center":
-            center_elements[idx_new] = active_element
-        return idx_new
+    if idx is not None:
+        return idx
 
-    return idx
+    push_state()
+
+    points.append((gx, gy, ptype))
+    idx_new = len(points) - 1
+
+    if ptype == "center":
+        center_elements[idx_new] = active_element
+
+    return idx_new
 
 # -------------------------------------------------
 # MOUSE
@@ -361,7 +356,6 @@ def on_mouse(event):
 
     gx, gy = snap(event.xdata, event.ydata)
 
-    # LEFT CLICK
     if event.button == 1:
 
         if event.key in ("control","ctrl"):
@@ -376,7 +370,6 @@ def on_mouse(event):
         redraw()
         return
 
-    # RIGHT CLICK
     if event.button == 3:
 
         if event.key in ("control","ctrl"):
@@ -424,7 +417,6 @@ def generate_ascii():
 
     grid = {}
 
-    # adjacency list
     adj = {i: [] for i,_ in enumerate(points)}
     for s in segments:
         a = s["start"]
@@ -433,8 +425,6 @@ def generate_ascii():
         adj[b].append(a)
 
     visited = set()
-
-    # ---------- ELEMENT CHAINS (center driven) ----------
 
     for center_idx,(gx,gy,t) in enumerate(points):
 
@@ -460,12 +450,10 @@ def generate_ascii():
                 if nb not in chain:
                     stack.append(nb)
 
-        # determine element
         element = center_elements.get(center_idx,"wire")
 
         cx,cy,_ = points[center_idx]
 
-        # detect orientation
         horiz = False
         vert = False
 
@@ -476,7 +464,6 @@ def generate_ascii():
             if x == cx:
                 vert = True
 
-        # draw wires
         for s in segments:
 
             if s["start"] not in chain or s["end"] not in chain:
@@ -511,9 +498,7 @@ def generate_ascii():
         else:
             grid[(cx,cy)] = sym
 
-        visited |= chain
-
-    # ---------- NORMAL WIRES ----------
+        visited |= {p for p in chain if points[p][2] != "node"}
 
     for s in segments:
 
@@ -526,6 +511,9 @@ def generate_ascii():
         x1,y1 = p1[0],p1[1]
         x2,y2 = p2[0],p2[1]
 
+        element = s.get("element","wire")
+
+        # draw base wire first
         if x1 == x2:
             for y in range(min(y1,y2)+1,max(y1,y2)):
                 grid[(x1,y)] = "|"
@@ -534,7 +522,32 @@ def generate_ascii():
             for x in range(min(x1,x2)+1,max(x1,x2)):
                 grid[(x,y1)] = "-"
 
-    # ---------- DRAW POINTS ----------
+        # overlay element on top of wire
+        if element != "wire":
+            orientation = "horizontal" if y1 == y2 else "vertical"
+            sym = element_symbol(element, orientation)
+
+            cx = (x1 + x2) // 2
+            cy = (y1 + y2) // 2
+
+            if sym.startswith("["):
+                grid[(cx-1,cy)] = "["
+                grid[(cx,cy)] = sym[1]
+                grid[(cx+1,cy)] = "]"
+            elif len(sym) == 3:
+                # protect node position
+                if grid.get((cx,cy)) == "o":
+                    continue
+                if x1 == x2:
+                    grid[(cx,cy-1)] = "-"
+                    grid[(cx,cy)] = sym[1]
+                    grid[(cx,cy+1)] = "-"
+                else:
+                    grid[(cx-1,cy)] = "-"
+                    grid[(cx,cy)] = sym[1]
+                    grid[(cx+1,cy)] = "-"
+            else:
+                grid[(cx,cy)] = sym
 
     for i,(gx,gy,t) in enumerate(points):
 
@@ -551,7 +564,12 @@ def generate_ascii():
             grid[(gx,gy)] = "\\"
 
         elif t == "boundary":
-            grid[(gx,gy)] = "-"
+            vert = (gx,gy-1) in grid or (gx,gy+1) in grid
+            horiz = (gx-1,gy) in grid or (gx+1,gy) in grid
+            if vert and not horiz:
+                grid[(gx,gy)] = "|"
+            else:
+                grid[(gx,gy)] = "-"
 
     if not grid:
         return ""
@@ -573,40 +591,7 @@ def generate_ascii():
     return "\n".join(lines)
 
 # -------------------------------------------------
-# PROJECT SAVE / LOAD
-# -------------------------------------------------
-
-def save_project(path="project.json"):
-
-    data = {
-        "points": points,
-        "segments": segments
-    }
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f)
-
-    print("project saved", path)
-
-
-def load_project(path="project.json"):
-
-    push_state()
-
-    global points, segments
-
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    points = [tuple(p) for p in data.get("points", [])]
-    segments = data.get("segments", [])
-
-    redraw()
-
-    print("project loaded", path)
-
-# -------------------------------------------------
-# SAVE
+# SAVE ASCII
 # -------------------------------------------------
 
 def save_scheme():
@@ -622,47 +607,93 @@ def save_scheme():
 # KEYBOARD
 # -------------------------------------------------
 
+def save_project():
+
+    data = {
+        "points": points,
+        "segments": segments,
+        "center_elements": center_elements
+    }
+
+    with open("project.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    print("project.json saved")
+
+
+def load_project():
+
+    global points, segments, center_elements
+
+    try:
+        with open("project.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        points = [tuple(p) for p in data.get("points", [])]
+        segments = [dict(s) for s in data.get("segments", [])]
+        center_elements = dict(data.get("center_elements", {}))
+
+        redraw()
+        print("project.json loaded")
+    except FileNotFoundError:
+        print("project.json not found")
+
+
+def load_background():
+
+    global background_image
+
+    try:
+        background_image = plt.imread("schematic.png")
+        redraw()
+        print("schematic.png loaded")
+    except FileNotFoundError:
+        print("schematic.png not found")
+
+
 def on_key(event):
 
     global active_element, pending_point
 
     k = event.key
 
-    if k in ("ctrl+i","control+i"):
-        load_background()
+    # Functional hotkeys
+    if k == "f1":
+        save_scheme()
         return
 
-    if k in ("ctrl+z","control+z"):
+    if k == "f2":
         undo()
         return
 
-    if k in ("ctrl+y","control+y"):
+    if k == "f3":
         redo()
         return
 
+    if k == "f4":
+        save_project()
+        return
+
+    if k == "f5":
+        load_project()
+        return
+
+    if k == "f6":
+        load_background()
+        return
+
+    # Cancel pending connection
     if k == "escape":
         pending_point = None
         return
 
+    # Element selection
     for name, data in ELEMENTS.items():
-        if k == data["key"]:
+        if k in (data.get("key"), data.get("ru")):
             active_element = name
             break
 
-    if k in ("ctrl+s","control+s","cmd+s"):
-        save_scheme()
-
-    if k in ("ctrl+p","control+p"):
-        save_project()
-
-    if k in ("ctrl+l","control+l"):
-        load_project()
-
     redraw()
-
-# -------------------------------------------------
-# EVENTS
-# -------------------------------------------------
 
 fig.canvas.mpl_connect("button_press_event", on_mouse)
 fig.canvas.mpl_connect("key_press_event", on_key)
