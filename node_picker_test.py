@@ -280,19 +280,19 @@ def draw_points():
             ax.plot(x, y, "ro", markersize=6)
 
         elif t == "center":
-            ax.plot(x, y, "b+", markersize=10)
+            ax.plot(x, y, "b+", markersize=12, markeredgewidth=2)
 
         elif t == "vertex":
-            ax.text(x, y, "~", ha="center", va="center")
+            ax.text(x, y, "~", ha="center", va="center", fontsize=12, fontweight="bold")
 
         elif t == "corner_fwd":
-            ax.text(x, y, "/", ha="center", va="center")
+            ax.text(x, y, "/", ha="center", va="center", fontsize=12, fontweight="bold")
 
         elif t == "corner_back":
-            ax.text(x, y, "\\", ha="center", va="center")
+            ax.text(x, y, "\\", ha="center", va="center", fontsize=12, fontweight="bold")
 
         elif t == "boundary":
-            ax.plot(x, y, "yx", markersize=8)
+            ax.plot(x, y, "yx", markersize=12, markeredgewidth=2)
 
 # -------------------------------------------------
 # REDRAW
