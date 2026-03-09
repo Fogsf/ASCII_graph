@@ -1,10 +1,9 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-21
+# PATCH-22
 # FIXES
-# 1. исправлена проблема center_elements после загрузки проекта (ключи JSON → int)
-# 2. добавлена русская клавиша "ч" для DELETE MODE
-# 3. исправлено поведение undo после удаления center
-# 4. удалён лишний redraw блок из delete_center_chain
+# 1. исправлено удаление center: node больше не попадают в цепь удаления
+# 2. запрещено ставить элемент поверх существующего элемента
+# 3. исправлена логика on_key (удалён дублирующий блок) — восстановлена корректная работа redo
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -176,6 +175,13 @@ def create_segment(a, b):
         return
 
     if segment_exists(a, b):
+        return
+
+    # forbid placing element over existing element
+    for s in segments:
+        if (s["start"] == a and s["end"] == b) or (s["start"] == b and s["end"] == a):
+            if s.get("element") != "wire":
+                return
         return
 
     # block segments that pass through boundary
@@ -402,12 +408,12 @@ def delete_center_chain(center_idx):
         if p in chain:
             continue
 
-        chain.add(p)
-
         px,py,ptype = points[p]
 
         if ptype == "node" and p != center_idx:
             continue
+
+        chain.add(p)
 
         for nb in adj[p]:
             if nb not in chain:
@@ -421,7 +427,7 @@ def delete_center_chain(center_idx):
 
     # delete points except nodes
     for idx in sorted(chain, reverse=True):
-        if idx < len(points):
+        if idx < len(points) and points[idx][2] != "node":
             swap_delete_point(idx)
 
 # -------------------------------------------------
@@ -795,12 +801,6 @@ def on_key(event):
         editor_mode = "delete" if editor_mode != "delete" else "draw"
         redraw()
         return
-
-    # Functional hotkeys
-
-    global active_element, pending_point
-
-    k = event.key
 
     # Functional hotkeys
     if k == "f1":
