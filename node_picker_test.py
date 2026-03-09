@@ -1,19 +1,10 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-22
+# PATCH-23
 # FIXES
-# 1. исправлено удаление center: node больше не попадают в цепь удаления
-# 2. запрещено ставить элемент поверх существующего элемента
-# 3. исправлена логика on_key (удалён дублирующий блок) — восстановлена корректная работа redo
-# -------------------------------------------------
-# Управление:
-# ЛКМ           → node
-# Shift + ЛКМ   → boundary (*)
-# Alt + ПКМ     → center
-# Ctrl + ЛКМ    → corner_fwd
-# Ctrl + ПКМ    → corner_back
-# ПКМ A → ПКМ B → сегмент между точками
-# клавиши выбора элемента задаются в таблице ELEMENTS (поле "key")
-# -------------------------------------------------
+# 1. исправлена логика запрета "элемент поверх элемента" (ранний return блокировал создание любых соединений)
+# 2. логика проверки существующего элемента теперь выполняется корректно
+# 3. undo/redo автоматически выходят из DELETE MODE
+
 # Управление:
 # ЛКМ           → node
 # Shift + ЛКМ   → boundary (*)
@@ -182,7 +173,6 @@ def create_segment(a, b):
         if (s["start"] == a and s["end"] == b) or (s["start"] == b and s["end"] == a):
             if s.get("element") != "wire":
                 return
-        return
 
     # block segments that pass through boundary
     for gx, gy, t in points:
@@ -485,13 +475,6 @@ def on_mouse(event):
             redraw()
             return
 
-        return
-
-
-
-    global pending_point
-
-    if event.xdata is None:
         return
 
     gx, gy = snap(event.xdata, event.ydata)
@@ -808,10 +791,12 @@ def on_key(event):
         return
 
     if k == "f2":
+        editor_mode = "draw"
         undo()
         return
 
     if k == "f3":
+        editor_mode = "draw"
         redo()
         return
 
