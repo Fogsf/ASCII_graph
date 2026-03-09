@@ -1,7 +1,7 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-25
-# COMMIT: F7 hotkey added to remove loaded schematic background without affecting current scheme
+# PATCH-26
+# COMMIT: добавлен Smart Snap — выбор существующей точки в радиусе 1 клетки вместо создания новой
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -128,10 +128,19 @@ def snap(px, py):
 # FIND POINT
 # -------------------------------------------------
 
+SMART_SNAP_RADIUS = 1
+
 def find_point(gx, gy):
+    # точное совпадение
     for i, (x, y, _) in enumerate(points):
         if x == gx and y == gy:
             return i
+
+    # Smart Snap — поиск ближайшей точки в радиусе
+    for i, (x, y, _) in enumerate(points):
+        if abs(x - gx) <= SMART_SNAP_RADIUS and abs(y - gy) <= SMART_SNAP_RADIUS:
+            return i
+
     return None
 
 # -------------------------------------------------
