@@ -1,13 +1,10 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-20
-# DELETE MODE
-# X → переключение режима удаления
-# ЛКМ в режиме DELETE удаляет ближайший объект
-# удаление точки использует swap-delete
-# при удалении center удаляется вся архитектура элемента (BFS)
-# обновляются indices в segments и center_elements
-# UI: добавлена прозрачность фонового изображения для удобной трассировки схем
-# schematic.png теперь отображается полупрозрачным поверх сетки
+# PATCH-21
+# FIXES
+# 1. исправлена проблема center_elements после загрузки проекта (ключи JSON → int)
+# 2. добавлена русская клавиша "ч" для DELETE MODE
+# 3. исправлено поведение undo после удаления center
+# 4. удалён лишний redraw блок из delete_center_chain
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -427,26 +424,6 @@ def delete_center_chain(center_idx):
         if idx < len(points):
             swap_delete_point(idx)
 
-
-    ax.clear()
-
-    ax.set_xlim(0, VIEW_W)
-    ax.set_ylim(VIEW_H, 0)
-
-    ax.set_aspect("equal")
-
-    if background_image is not None:
-        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35)
-
-    draw_grid()
-    draw_segments()
-    draw_points()
-
-    label = ELEMENTS.get(active_element, {}).get("label", active_element)
-    ax.set_title(f"MODE: {label}")
-
-    fig.canvas.draw_idle()
-
 # -------------------------------------------------
 # ADD POINT
 # -------------------------------------------------
@@ -788,7 +765,7 @@ def load_project():
 
         points = [tuple(p) for p in data.get("points", [])]
         segments = [dict(s) for s in data.get("segments", [])]
-        center_elements = dict(data.get("center_elements", {}))
+        center_elements = {int(k): v for k,v in data.get("center_elements", {}).items()}
 
         redraw()
         print("project.json loaded")
@@ -814,7 +791,7 @@ def on_key(event):
 
     k = event.key
 
-    if k == "x":
+    if k in ("x","ч"):
         editor_mode = "delete" if editor_mode != "delete" else "draw"
         redraw()
         return
