@@ -1,10 +1,8 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-24
-# FIXES / PROTECTION
-# 1. запрещено ставить node/vertex/corner/boundary на существующий провод
-#    (предотвращает разрушение топологии ASCII)
-# 2. проверка выполняется в add_point(): если клетка лежит на сегменте (не в его конце) — точка не создаётся
-
+# -------------------------------------------------
+# PATCH-25
+# COMMIT: F7 hotkey added to remove loaded schematic background without affecting current scheme
+# -------------------------------------------------
 # Управление:
 # ЛКМ           → node
 # Shift + ЛКМ   → boundary (*)
@@ -788,6 +786,14 @@ def load_background():
         print("schematic.png not found")
 
 
+def clear_background():
+
+    global background_image
+
+    background_image = None
+    redraw()
+
+
 def on_key(event):
 
     global active_element, pending_point, editor_mode
@@ -824,6 +830,10 @@ def on_key(event):
 
     if k == "f6":
         load_background()
+        return
+
+    if k == "f7":
+        clear_background()
         return
 
     # Cancel pending connection
