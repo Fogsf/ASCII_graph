@@ -1,16 +1,4 @@
-# GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
-# PATCH-19
-# UI: добавлена прозрачность фонового изображения для удобной трассировки схем
-# schematic.png теперь отображается полупрозрачным поверх сетки
-# -------------------------------------------------
-# Управление:
-# ЛКМ           → node
-# Shift + ЛКМ   → boundary (*)
-# Alt + ПКМ     → center
-# Ctrl + ЛКМ    → corner_fwd
-# Ctrl + ПКМ    → corner_back
-# ПКМ A → ПКМ B → сегмент между точками
-# клавиши выбора элемента задаются в таблице ELEMENTS (поле "key")
+# GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.2)
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -69,6 +57,9 @@ history_redo = []
 
 active_element = "wire"
 pending_point = None
+hover_point = None
+ghost_target = None
+editor_mode = "draw"
 
 
 def snapshot_state():
@@ -171,6 +162,12 @@ def create_segment(a, b):
     if pa[0] != pb[0] and pa[1] != pb[1]:
         return
 
+    # forbid placing element over existing element
+    for s in segments:
+        if (s["start"] == a and s["end"] == b) or (s["start"] == b and s["end"] == a):
+            if s.get("element") != "wire":
+                return
+
     if segment_exists(a, b):
         return
 
@@ -271,13 +268,16 @@ def draw_segments():
 
 def draw_points():
 
-    for gx, gy, t in points:
+    for i,(gx, gy, t) in enumerate(points):
 
         x = gx * GRID_SIZE
         y = gy * GRID_SIZE
 
         if t == "node":
-            ax.plot(x, y, "ro", markersize=6)
+            if i == hover_point:
+                ax.text(x, y, "O", ha="center", va="center", fontsize=12, fontweight="bold")
+            else:
+                ax.plot(x, y, "ro", markersize=6)
 
         elif t == "center":
             ax.plot(x, y, "b+", markersize=12, markeredgewidth=2)
@@ -293,6 +293,53 @@ def draw_points():
 
         elif t == "boundary":
             ax.plot(x, y, "yx", markersize=12, markeredgewidth=2)
+
+# -------------------------------------------------
+# CONNECTION HINT
+# -------------------------------------------------
+
+def draw_connection_hint():
+
+    if pending_point is None:
+        return
+
+    gx, gy, _ = points[pending_point]
+
+    x = gx * GRID_SIZE
+    y = gy * GRID_SIZE
+
+    occupied = {"up":False,"down":False,"left":False,"right":False}
+
+    for s in segments:
+        if s["start"] == pending_point or s["end"] == pending_point:
+            other = s["end"] if s["start"] == pending_point else s["start"]
+            ox, oy, _ = points[other]
+
+            if ox == gx:
+                if oy < gy:
+                    occupied["up"] = True
+                if oy > gy:
+                    occupied["down"] = True
+
+            if oy == gy:
+                if ox < gx:
+                    occupied["left"] = True
+                if ox > gx:
+                    occupied["right"] = True
+
+    offset = GRID_SIZE * 1.2
+
+    if not occupied["up"]:
+        ax.text(x, y-offset, "↑", ha="center", va="center", color="gray")
+
+    if not occupied["down"]:
+        ax.text(x, y+offset, "↓", ha="center", va="center", color="gray")
+
+    if not occupied["left"]:
+        ax.text(x-offset, y, "←", ha="center", va="center", color="gray")
+
+    if not occupied["right"]:
+        ax.text(x+offset, y, "→", ha="center", va="center", color="gray")
 
 # -------------------------------------------------
 # REDRAW
@@ -312,18 +359,137 @@ def redraw():
 
     draw_grid()
     draw_segments()
+    draw_ghost_segment()
     draw_points()
+    draw_connection_hint()
 
-    label = ELEMENTS.get(active_element, {}).get("label", active_element)
-    ax.set_title(f"MODE: {label}")
+    if editor_mode == "delete":
+        ax.set_title("MODE: DELETE")
+    else:
+        label = ELEMENTS.get(active_element, {}).get("label", active_element)
+        ax.set_title(f"MODE: {label}")
 
     fig.canvas.draw_idle()
+
+# -------------------------------------------------
+# DELETE UTILITIES
+# -------------------------------------------------
+
+def swap_delete_point(idx):
+
+    last = len(points) - 1
+
+    # remove segments connected to point
+    remove_segments = [i for i,s in enumerate(segments) if s["start"] == idx or s["end"] == idx]
+
+    for i in reversed(remove_segments):
+        segments.pop(i)
+
+    # center deletion handled separately
+
+    if idx != last:
+        moved = points[last]
+        points[idx] = moved
+
+        # update segments referencing last
+        for s in segments:
+            if s["start"] == last:
+                s["start"] = idx
+            if s["end"] == last:
+                s["end"] = idx
+
+        # update center_elements
+        if last in center_elements:
+            center_elements[idx] = center_elements[last]
+            del center_elements[last]
+
+    points.pop()
+
+    if idx in center_elements:
+        del center_elements[idx]
+
+
+def delete_segment_near(gx, gy):
+
+    for i,s in enumerate(segments):
+
+        p1 = points[s["start"]]
+        p2 = points[s["end"]]
+
+        x1,y1 = p1[0],p1[1]
+        x2,y2 = p2[0],p2[1]
+
+        if x1 == x2 == gx and min(y1,y2) <= gy <= max(y1,y2):
+            push_state()
+            segments.pop(i)
+            return True
+
+        if y1 == y2 == gy and min(x1,x2) <= gx <= max(x1,x2):
+            push_state()
+            segments.pop(i)
+            return True
+
+    return False
+
+
+def delete_center_chain(center_idx):
+
+    adj = {i: [] for i,_ in enumerate(points)}
+    for s in segments:
+        adj[s["start"]].append(s["end"])
+        adj[s["end"]].append(s["start"])
+
+    stack = [center_idx]
+    chain = set()
+
+    while stack:
+        p = stack.pop()
+        if p in chain:
+            continue
+
+        px,py,ptype = points[p]
+
+        if ptype == "node" and p != center_idx:
+            continue
+
+        chain.add(p)
+
+        for nb in adj[p]:
+            if nb not in chain:
+                stack.append(nb)
+
+    # delete segments inside chain
+    for i in reversed(range(len(segments))):
+        s = segments[i]
+        if s["start"] in chain or s["end"] in chain:
+            segments.pop(i)
+
+    # delete points except nodes
+    for idx in sorted(chain, reverse=True):
+        if idx < len(points) and points[idx][2] != "node":
+            swap_delete_point(idx)
 
 # -------------------------------------------------
 # ADD POINT
 # -------------------------------------------------
 
 def add_point(gx, gy, ptype):
+
+    # forbid placing point directly on existing segment
+    for s in segments:
+        p1 = points[s["start"]]
+        p2 = points[s["end"]]
+
+        x1,y1 = p1[0],p1[1]
+        x2,y2 = p2[0],p2[1]
+
+        # vertical segment
+        if x1 == x2 == gx and min(y1,y2) < gy < max(y1,y2):
+            return None
+
+        # horizontal segment
+        if y1 == y2 == gy and min(x1,x2) < gx < max(x1,x2):
+            return None
 
     idx = find_point(gx, gy)
 
@@ -344,6 +510,62 @@ def add_point(gx, gy, ptype):
 # MOUSE
 # -------------------------------------------------
 
+def on_move(event):
+
+    global hover_point, ghost_target
+
+    if event.xdata is None:
+        hover_point = None
+        ghost_target = None
+        return
+
+    gx, gy = snap(event.xdata, event.ydata)
+
+    hover_point = find_point(gx, gy)
+
+    if pending_point is not None:
+        ghost_target = (gx, gy)
+    else:
+        ghost_target = None
+
+    redraw()
+
+
+def draw_ghost_segment():
+
+    if pending_point is None or ghost_target is None:
+        return
+
+    gx, gy = ghost_target
+    px, py, _ = points[pending_point]
+
+    if px != gx and py != gy:
+        return
+
+    x1 = px * GRID_SIZE
+    y1 = py * GRID_SIZE
+
+    x2 = gx * GRID_SIZE
+    y2 = gy * GRID_SIZE
+
+    ax.plot([x1, x2], [y1, y2], linestyle="--", color="gray", linewidth=2, alpha=0.6)
+
+
+def on_mouse(event):
+
+    global hover_point
+
+    if event.xdata is None:
+        hover_point = None
+        return
+
+    gx, gy = snap(event.xdata, event.ydata)
+
+    hover_point = find_point(gx, gy)
+
+    redraw()
+
+
 def on_mouse(event):
 
     global pending_point
@@ -352,6 +574,29 @@ def on_mouse(event):
         return
 
     gx, gy = snap(event.xdata, event.ydata)
+
+    # DELETE MODE
+    if editor_mode == "delete" and event.button == 1:
+
+        idx = find_point(gx, gy)
+
+        if idx is not None:
+
+            push_state()
+
+            if points[idx][2] == "center":
+                delete_center_chain(idx)
+            else:
+                swap_delete_point(idx)
+
+            redraw()
+            return
+
+        if delete_segment_near(gx, gy):
+            redraw()
+            return
+
+        return
 
     if event.button == 1:
 
@@ -628,7 +873,7 @@ def load_project():
 
         points = [tuple(p) for p in data.get("points", [])]
         segments = [dict(s) for s in data.get("segments", [])]
-        center_elements = dict(data.get("center_elements", {}))
+        center_elements = {int(k): v for k,v in data.get("center_elements", {}).items()}
 
         redraw()
         print("project.json loaded")
@@ -648,11 +893,24 @@ def load_background():
         print("schematic.png not found")
 
 
+def clear_background():
+
+    global background_image
+
+    background_image = None
+    redraw()
+
+
 def on_key(event):
 
-    global active_element, pending_point
+    global active_element, pending_point, editor_mode
 
     k = event.key
+
+    if k in ("x","ч"):
+        editor_mode = "delete" if editor_mode != "delete" else "draw"
+        redraw()
+        return
 
     # Functional hotkeys
     if k == "f1":
@@ -660,10 +918,12 @@ def on_key(event):
         return
 
     if k == "f2":
+        editor_mode = "draw"
         undo()
         return
 
     if k == "f3":
+        editor_mode = "draw"
         redo()
         return
 
@@ -679,6 +939,10 @@ def on_key(event):
         load_background()
         return
 
+    if k == "f7":
+        clear_background()
+        return
+
     # Cancel pending connection
     if k == "escape":
         pending_point = None
@@ -692,6 +956,7 @@ def on_key(event):
 
     redraw()
 
+fig.canvas.mpl_connect("motion_notify_event", on_move)
 fig.canvas.mpl_connect("button_press_event", on_mouse)
 fig.canvas.mpl_connect("key_press_event", on_key)
 
