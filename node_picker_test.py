@@ -1,7 +1,7 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-29
-# Ghost Preview линии — при движении курсора показывается призрачная линия будущего сегмента после snap
+# PATCH-30
+# Выбор файла подложки через диалог (F6) вместо фиксированного schematic.png
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -888,12 +888,23 @@ def load_background():
 
     global background_image
 
+    from tkinter import filedialog
+    import os
+
+    path = filedialog.askopenfilename(
+        title="Select schematic",
+        filetypes=[("PNG images", "*.png")]
+    )
+
+    if not path:
+        return
+
     try:
-        background_image = plt.imread("schematic.png")
+        background_image = plt.imread(path)
         redraw()
-        print("schematic.png loaded")
-    except FileNotFoundError:
-        print("schematic.png not found")
+        print(f"Background loaded: {os.path.basename(path)}")
+    except Exception:
+        print("Failed to load selected image")
 
 
 def clear_background():
