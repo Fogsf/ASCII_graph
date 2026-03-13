@@ -1,14 +1,10 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-31
-# Большое обновление UI и панели элементов
-# - Добавлена правая UI-панель с фоном
-# - MODE перенесён в панель над ELEMENTS
-# - Сетка теперь занимает всю рабочую область слева
-# - Панель элементов полностью вынесена за пределы grid
-# - Добавлен вертикальный разделитель grid / UI
-# - Исправлена зона клика элементов (центр строки)
-# - Layout растянут через fig.subplots_adjust
+# PATCH-32
+# Скрыт toolbar matplotlib
+# Убраны ticks осей
+# Сохранена рамка canvas
+# Интерфейс стал чистым редактором
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -24,9 +20,13 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 import json
 
-background_image = None
+mpl.rcParams['toolbar'] = 'None'
 
 mpl.rcParams['keymap.save'] = []
+mpl.rcParams['keymap.quit'] = []
+mpl.rcParams['keymap.quit_all'] = []
+
+background_image = None
 
 GRID_SIZE = 20
 VIEW_W = 1500
@@ -73,7 +73,6 @@ editor_mode = "draw"
 
 palette_visible = False
 
-PALETTE_X = VIEW_W + 10
 PALETTE_WIDTH = 200
 PALETTE_ITEM_HEIGHT = 28
 
@@ -128,7 +127,7 @@ def redo():
 # -------------------------------------------------
 
 fig, ax = plt.subplots()
-fig.subplots_adjust(left=0.02, right=0.82, top=0.98, bottom=0.02)
+fig.subplots_adjust(left=0.02, right=0.97, top=0.97, bottom=0.02)
 manager = plt.get_current_fig_manager()
 root = manager.window
 root.geometry("1233x839+676+0")
@@ -364,8 +363,9 @@ def draw_connection_hint():
 
 def draw_ui_panel():
 
-    panel_x = VIEW_W + 10
-    panel_w = 210
+    panel_x = VIEW_W
+    panel_w = PALETTE_WIDTH
+    panel_text_x = panel_x + 12
 
     rect = mpl.patches.Rectangle((VIEW_W, 0), panel_w, VIEW_H, color="#efefef", zorder=0)
     ax.add_patch(rect)
@@ -377,14 +377,14 @@ def draw_ui_panel():
     else:
         mode_label = ELEMENTS.get(active_element, {}).get("label", active_element)
 
-    ax.text(panel_x, 40, f"MODE: {mode_label}", fontsize=12, fontweight="bold")
+    ax.text(panel_text_x, 40, f"MODE: {mode_label}", fontsize=12, fontweight="bold")
 
     if not palette_visible:
         return
 
     y = 90
 
-    ax.text(panel_x, y-25, "ELEMENTS", fontsize=11, fontweight="bold")
+    ax.text(panel_text_x, y-25, "ELEMENTS", fontsize=11, fontweight="bold")
 
     for i,(name,data) in enumerate(ELEMENTS.items()):
 
@@ -397,15 +397,21 @@ def draw_ui_panel():
 
         color = "red" if name == active_element else "black"
 
-        ax.text(panel_x, ty, text, fontsize=10, color=color)
+        ax.text(panel_text_x, ty, text, fontsize=10, color=color)
 
 
 def redraw():
 
     ax.clear()
 
-    ax.set_xlim(0, VIEW_W + 220)
+    ax.set_xlim(0, VIEW_W + PALETTE_WIDTH)
     ax.set_ylim(VIEW_H, 0)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    for spine in ax.spines.values():
+        spine.set_visible(True)
 
     ax.set_aspect("auto")
 
@@ -611,7 +617,7 @@ def on_mouse(event):
 
     if palette_visible and event.xdata is not None and event.xdata > VIEW_W:
 
-        index = int((event.ydata - 40 + PALETTE_ITEM_HEIGHT/2) / PALETTE_ITEM_HEIGHT)
+        index = int((event.ydata - 90 + PALETTE_ITEM_HEIGHT/2) / PALETTE_ITEM_HEIGHT)
 
         names = list(ELEMENTS.keys())
 
