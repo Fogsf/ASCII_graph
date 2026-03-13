@@ -1,7 +1,14 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-30
-# Выбор файла подложки через диалог (F6) вместо фиксированного schematic.png
+# PATCH-31
+# Большое обновление UI и панели элементов
+# - Добавлена правая UI-панель с фоном
+# - MODE перенесён в панель над ELEMENTS
+# - Сетка теперь занимает всю рабочую область слева
+# - Панель элементов полностью вынесена за пределы grid
+# - Добавлен вертикальный разделитель grid / UI
+# - Исправлена зона клика элементов (центр строки)
+# - Layout растянут через fig.subplots_adjust
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -64,6 +71,12 @@ hover_point = None
 ghost_target = None
 editor_mode = "draw"
 
+palette_visible = False
+
+PALETTE_X = VIEW_W + 10
+PALETTE_WIDTH = 200
+PALETTE_ITEM_HEIGHT = 28
+
 
 def snapshot_state():
     return {
@@ -115,9 +128,10 @@ def redo():
 # -------------------------------------------------
 
 fig, ax = plt.subplots()
+fig.subplots_adjust(left=0.02, right=0.82, top=0.98, bottom=0.02)
 manager = plt.get_current_fig_manager()
 root = manager.window
-root.geometry("1233x839+680+0")
+root.geometry("1233x839+676+0")
 
 # -------------------------------------------------
 # SNAP
@@ -348,14 +362,52 @@ def draw_connection_hint():
 # REDRAW
 # -------------------------------------------------
 
+def draw_ui_panel():
+
+    panel_x = VIEW_W + 10
+    panel_w = 210
+
+    rect = mpl.patches.Rectangle((VIEW_W, 0), panel_w, VIEW_H, color="#efefef", zorder=0)
+    ax.add_patch(rect)
+
+    ax.plot([VIEW_W, VIEW_W], [0, VIEW_H], color="#444", linewidth=1)
+
+    if editor_mode == "delete":
+        mode_label = "DELETE"
+    else:
+        mode_label = ELEMENTS.get(active_element, {}).get("label", active_element)
+
+    ax.text(panel_x, 40, f"MODE: {mode_label}", fontsize=12, fontweight="bold")
+
+    if not palette_visible:
+        return
+
+    y = 90
+
+    ax.text(panel_x, y-25, "ELEMENTS", fontsize=11, fontweight="bold")
+
+    for i,(name,data) in enumerate(ELEMENTS.items()):
+
+        label = data.get("label", name)
+        symbol = data.get("symbol","?")
+
+        text = f"[{symbol}] {label}"
+
+        ty = y + i*PALETTE_ITEM_HEIGHT
+
+        color = "red" if name == active_element else "black"
+
+        ax.text(panel_x, ty, text, fontsize=10, color=color)
+
+
 def redraw():
 
     ax.clear()
 
-    ax.set_xlim(0, VIEW_W)
+    ax.set_xlim(0, VIEW_W + 220)
     ax.set_ylim(VIEW_H, 0)
 
-    ax.set_aspect("equal")
+    ax.set_aspect("auto")
 
     if background_image is not None:
         ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35)
@@ -365,12 +417,9 @@ def redraw():
     draw_ghost_segment()
     draw_points()
     draw_connection_hint()
+    draw_ui_panel()
 
-    if editor_mode == "delete":
-        ax.set_title("MODE: DELETE")
-    else:
-        label = ELEMENTS.get(active_element, {}).get("label", active_element)
-        ax.set_title(f"MODE: {label}")
+    
 
     fig.canvas.draw_idle()
 
@@ -554,24 +603,24 @@ def draw_ghost_segment():
     ax.plot([x1, x2], [y1, y2], linestyle="--", color="gray", linewidth=2, alpha=0.6)
 
 
-def on_mouse(event):
-
-    global hover_point
-
-    if event.xdata is None:
-        hover_point = None
-        return
-
-    gx, gy = snap(event.xdata, event.ydata)
-
-    hover_point = find_point(gx, gy)
-
-    redraw()
 
 
 def on_mouse(event):
 
     global pending_point
+
+    if palette_visible and event.xdata is not None and event.xdata > VIEW_W:
+
+        index = int((event.ydata - 40 + PALETTE_ITEM_HEIGHT/2) / PALETTE_ITEM_HEIGHT)
+
+        names = list(ELEMENTS.keys())
+
+        if 0 <= index < len(names):
+            global active_element
+            active_element = names[index]
+
+        redraw()
+        return
 
     if event.xdata is None:
         return
@@ -917,12 +966,18 @@ def clear_background():
 
 def on_key(event):
 
-    global active_element, pending_point, editor_mode
+    global active_element, pending_point, editor_mode, palette_visible
 
     k = event.key
 
     if k in ("x","ч"):
         editor_mode = "delete" if editor_mode != "delete" else "draw"
+        redraw()
+        return
+
+    # Palette toggle
+    if k in ("q","й"):
+        palette_visible = not palette_visible
         redraw()
         return
 
