@@ -1,10 +1,19 @@
 # GRID SCHEMATIC EDITOR (ASCII GRID SCHEMATIC EDITOR — VERSION 1.1)
 # -------------------------------------------------
-# PATCH-32
-# Скрыт toolbar matplotlib
-# Убраны ticks осей
-# Сохранена рамка canvas
-# Интерфейс стал чистым редактором
+# PATCH-33
+# Расширена система элементов
+# Добавлено поле "type" в таблицу ELEMENTS (line / center)
+# Это позволяет системе корректно различать линейные и центрированные элементы
+# Добавлены новые элементы:
+#   speaker      → символ D (линейный элемент)
+#   switch       → символ S (линейный элемент)
+#   transformer  → символ ! (центрированный элемент)
+# Диод разделён на два направления:
+#   diode_left   → символ <
+#   diode_right  → символ >
+# Исправлена логика create_segment():
+# теперь проверка типа элемента выполняется через ELEMENTS[element]["type"]
+# Это делает архитектуру элементов расширяемой и безопасной с точки зрения топологии схемы
 # -------------------------------------------------
 # Управление:
 # ЛКМ           → node
@@ -40,14 +49,18 @@ GRID_OFFSET_Y = 0
 # -------------------------------------------------
 
 ELEMENTS = {
-    "wire": {"key":"w","ru":"ц","symbol":"-","color":"blue","label":"провод"},
-    "resistor": {"key":"r","ru":"к","symbol":"R","color":"green","label":"резистор"},
-    "capacitor": {"key":"c","ru":"с","symbol":"C","color":"purple","label":"конденсатор"},
-    "transistor": {"key":"t","ru":"е","symbol":"T","color":"orange","label":"транзистор"},
-    "diode": {"key":"d","ru":"в","symbol":"D","color":"yellow","label":"диод"},
-    "inductor": {"key":"l","ru":"д","symbol":"L","color":"brown","label":"индуктивность"},
-    "vsource": {"key":"v","ru":"м","symbol":"V","color":"red","label":"источник"},
-    "ground": {"key":"g","ru":"п","symbol":"G","color":"black","label":"земля"}
+    "wire": {"type":"line","key":"w","ru":"ц","symbol":"-","color":"blue","label":"провод"},
+    "resistor": {"type":"line","key":"r","ru":"к","symbol":"R","color":"green","label":"резистор"},
+    "capacitor": {"type":"line","key":"c","ru":"с","symbol":"C","color":"purple","label":"конденсатор"},
+    "transistor": {"type":"center","key":"t","ru":"е","symbol":"T","color":"orange","label":"транзистор"},
+    "diode_left": {"type":"line","key":"d","ru":"в","symbol":"<","color":"yellow","label":"диод ←"},
+    "diode_right": {"type":"line","key":"f","ru":"а","symbol":">","color":"yellow","label":"диод →"},
+    "inductor": {"type":"line","key":"l","ru":"д","symbol":"L","color":"brown","label":"индуктивность"},
+    "vsource": {"type":"line","key":"v","ru":"м","symbol":"V","color":"red","label":"источник"},
+    "ground": {"type":"line","key":"g","ru":"п","symbol":"G","color":"black","label":"земля"},
+    "speaker": {"type":"line","key":"k","ru":"л","symbol":"D","color":"magenta","label":"спикер"},
+    "switch": {"type":"line","key":"s","ru":"ы","symbol":"S","color":"black","label":"выключатель"},
+    "transformer": {"type":"center","key":"z","ru":"я","symbol":"!","color":"darkblue","label":"трансформатор"}
 }
 
 # -------------------------------------------------
@@ -228,7 +241,7 @@ def create_segment(a, b):
                     if other not in visited_pts:
                         stack.append(other)
 
-    if (points[a][2] == "center" or points[b][2] == "center") and element_to_use == "wire":
+    if (points[a][2] == "center" or points[b][2] == "center") and ELEMENTS.get(element_to_use, {}).get("type") != "center":
         return
 
     if points[a][2] == "center":
@@ -416,7 +429,9 @@ def redraw():
     ax.set_aspect("auto")
 
     if background_image is not None:
-        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35)
+        ax.imshow(background_image, extent=[0, VIEW_W, VIEW_H, 0], alpha=0.35, zorder=-100, aspect="auto")
+        ax.set_xlim(0, VIEW_W + PALETTE_WIDTH)
+        ax.set_ylim(VIEW_H, 0)
 
     draw_grid()
     draw_segments()
